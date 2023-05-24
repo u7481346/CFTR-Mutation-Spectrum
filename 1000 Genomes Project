@@ -1,0 +1,358 @@
+library(vcfR)
+library(ggplot2)
+library(dplyr)
+library(openxlsx)
+library(tidyverse)
+library(biomaRt)
+library(VariantAnnotation)
+library(purrr)
+library(gridExtra)
+library(grid)
+
+#read in the vcf files from the 1000 genomes project
+genomes<-read.vcfR("cftr_chr7.vcf")
+
+#extract the positions
+pos <- genomes@fix[, "POS"]
+pos <- as.numeric(pos)
+
+#extract the alternate allele frequencies
+  INFO<-extract.info(genomes,
+element = "AF",
+mask = FALSE,
+as.numeric=TRUE)
+
+#create a dataframe with the alternate allele frequencies and positions, and the reference and alternate alleles
+data<-data_frame(INFO, pos)
+data$reference<-genomes@fix[, "REF"]
+data$alternate<-genomes@fix[, "ALT"]
+#the notation of deletion mutations in the 1000 genomes project gave different positions than the ensebl coordinates - for example, the deletion f508del, which is the deletion of CTT, was written as CCTT>C rather than CTT>_, giving a position of one less than the ensembl/NCBI refernce coordinate.
+#add 1 to the position of these variants
+data<-data%>%
+  mutate(pos = ifelse(nchar(reference) > 1, pos + 1, pos))
+
+#plot this data as a geom_point object
+barplot<-ggplot(data, aes(x = pos, y = INFO)) +
+ geom_point(size=0.5, alpha=0.6)+
+  labs(y ="Alternate Allele Frequency", x ="Position on Chr7", title ="Position of Alternate Alleles Along Chr7" )
+plot(barplot)
+
+#read in the sample info
+library(readxl)
+X20130606_sample_info <- read_excel("20130606_sample_info.xlsx", 
+sheet = "Sample Info")
+
+#split the samples into African, American, East Asian, and European ancestral groups. 
+europe <- X20130606_sample_info[X20130606_sample_info$Population %in% c("GBR", "FIN", "IBS", "CEU", "TSI"), ]
+
+easia <- X20130606_sample_info[X20130606_sample_info$Population %in% c("CHS", "CDX", "KHV", "CHB", "JPT"), ]
+
+sasia<- X20130606_sample_info[X20130606_sample_info$Population %in% c("PJL", "BEB", "GIH", "ITU", "STU"), ]
+
+america <- X20130606_sample_info[X20130606_sample_info$Population %in% c("PUR", "CLM", "PEL", "MXL"), ]
+
+africa <- X20130606_sample_info[X20130606_sample_info$Population %in% c("GWD", "ESN", "ASW", "LWK", "MSL", "YRI", "ACB"), ]
+
+#create individual data frames and plots for each population
+african_ancestry_frequencies<-extract.info(genomes,
+element = "AF_AFR_unrel",
+mask = FALSE,
+as.numeric=TRUE)
+
+AF_data_africa<-data_frame(african_ancestry_frequencies, pos)
+
+African_plot<-ggplot(AF_data_africa, aes(x = pos, y = as.numeric(african_ancestry_frequencies))) +
+ geom_point(alpha=0.6, size=0.6)+
+  labs(x=NULL, y=NULL)
+plot(African_plot)
+
+american_ancestry_frequencies<-extract.info(genomes,
+element = "AF_AMR_unrel",
+mask = FALSE,
+as.numeric=TRUE)
+
+AF_data_america<-data_frame(american_ancestry_frequencies, pos)
+
+american_plot<-ggplot(AF_data_america, aes(x = pos, y = american_ancestry_frequencies)) +
+ geom_point(alpha=0.6, size=0.6)+
+  labs(x=NULL, y=NULL)
+plot(american_plot)
+
+easian_ancestry_frequencies<-extract.info(genomes,
+element = "AF_EAS_unrel",
+mask = FALSE,
+as.numeric=TRUE)
+
+AF_data_easia<-data_frame(easian_ancestry_frequencies, pos)
+
+easian_plot<-ggplot(AF_data_easia, aes(x = pos, y = easian_ancestry_frequencies)) +
+ geom_point(alpha=0.6, size=0.6)+
+  labs(x=NULL, y=NULL)
+plot(easian_plot)
+
+sasian_ancestry_frequencies<-extract.info(genomes,
+element = "AF_SAS_unrel",
+mask = FALSE,
+as.numeric=TRUE)
+
+AF_data_sasia<-data_frame(sasian_ancestry_frequencies, pos)
+
+sasian_plot<-ggplot(AF_data_sasia, aes(x = pos, y = sasian_ancestry_frequencies)) +
+ geom_point(alpha=0.6, size=0.6)+
+  labs(x=NULL, y=NULL)
+plot(sasian_plot)
+
+european_ancestry_frequencies<-extract.info(genomes,
+element = "AF_EUR_unrel",
+mask = FALSE,
+as.numeric=TRUE)
+
+AF_data_europe<-data_frame(european_ancestry_frequencies, pos)
+
+european_plot<-ggplot(AF_data_europe, aes(x = pos, y = european_ancestry_frequencies)) +
+ geom_point(alpha=0.6, size=0.6)+
+  labs(x=NULL, y=NULL)
+plot(european_plot)
+
+
+#arrange these plots into one object
+grid.arrange(African_plot + ggtitle("African Ancestry"), american_plot + ggtitle("American Ancestry"), easian_plot + ggtitle("East Asian Ancestry"),
+             european_plot + ggtitle("European Ancestry"), sasian_plot + ggtitle("South Asian Ancestry"),
+             ncol = 3, nrow = 2,
+             top = textGrob("Position of Alternate Alleles in Ancestrally Diverse Populations", gp = gpar(fontface = "bold")),
+             bottom = textGrob("Position on Chr7", gp = gpar(fontface = "bold")),
+             left = textGrob("Alternate Allele Frequency", rot = 90, gp = gpar(fontface = "bold")),
+             heights = c(1, 1),
+             widths = c(1.5, 1.5, 1.5),
+             respect = TRUE)
+             
+
+#create a bar chart grouped by the frequency of mutation (common, rare and very rare) and stacked by population
+freqinfo <- extract_info_tidy(genomes)
+freqinfo <- freqinfo %>% mutate(position = pos)
+afcol <- c("AF_AFR_unrel", "AF_AMR_unrel", "AF_EAS_unrel", "AF_EUR_unrel", "AF_SAS_unrel")
+
+freqinfo %>%
+    dplyr::select(position, all_of(afcol)) %>%
+    tidyr::pivot_longer(cols = -position, names_to = "population", values_to = "frequency") %>%
+    dplyr::mutate(
+        frequency = as.numeric(frequency),
+        posgr = as.integer(position / 1000),
+        category = case_when(
+            frequency < 0.01 ~ "very rare",
+            frequency >= 0.01 & frequency < 0.1 ~ "rare",
+            frequency >= 0.1 ~ "common"
+        )
+    ) %>%
+    dplyr::group_by(posgr, category, population) %>%
+    dplyr::summarize(count = n()) %>%
+    dplyr::ungroup() %>%
+    # Assuming your tbl is named 'stacked_data'
+    ggplot() +
+      geom_bar(aes(x = category, y = count, fill = population),
+             position = "stack",
+             stat = "identity") +
+    facet_grid(~ posgr, switch = "x") +
+    theme(strip.placement = "outside",
+          strip.background = element_rect(fill = NA, color = "white"),
+          panel.spacing = unit(-.01,"cm"))+
+  labs(y="Number of variants")
+
+
+freqinfo %>%
+    dplyr::select(position, all_of(afcol)) %>%
+    tidyr::pivot_longer(cols = -position, names_to = "population", values_to = "frequency") %>%
+    dplyr::mutate(
+        frequency = as.numeric(frequency),
+        posgr = as.integer(position / 1000),
+        category = case_when(
+            frequency < 0.01 ~ "very rare",
+            frequency >= 0.01 & frequency < 0.1 ~ "rare",
+            frequency >= 0.1 ~ "common"
+        )
+    ) %>%
+    dplyr::group_by(posgr, category, population) %>%
+    dplyr::summarize(count = n()) %>%
+    dplyr::ungroup() %>%
+    # Assuming your tbl is named 'stacked_data'
+    ggplot() +
+    geom_bar(aes(x = category, y = count, fill = population),
+             position = "stack",
+             stat = "identity") +
+    facet_grid(~ posgr, switch = "x") +
+    theme(strip.placement = "outside",
+          strip.background = element_rect(fill = NA, color = "white"),
+          panel.spacing = unit(-.01,"cm"), axis.text.x = element_blank(),
+          axis.ticks.x = element_blank())+
+    labs(y="Number of variants", x="Position along Chr7")+scale_fill_discrete(labels = c("African Ancestry", "American Ancestry", "East Asian Ancestry", "European Ancestry", "South Asian Ancestry"))
+    
+#read in the mutation information from the CFTR2 database
+CFTR2_29April2022_1_ <- read_excel("CFTR2_29April2022 (1).xlsx", 
+     range = "A11:J496")
+#connect to the ensembl database. use this database to get the position of each mutation in the CFTR2 database on Chr7 using the refsnp_id column of the CFTR2 database.
+ensembl <- useMart("ENSEMBL_MART_SNP", dataset = "hsapiens_snp")
+locations <- getBM(attributes = c("refsnp_id", "chr_name", "chrom_start", "chrom_end"),
+                   filters = "snp_filter",
+                   values = CFTR2_29April2022_1_$rsID,
+                   mart = ensembl)
+#create a new data frame with the information from the CFTR2 database and position information
+pathogenic <- merge(CFTR2_29April2022_1_, locations, by.x = "rsID", by.y = "refsnp_id", all.x = TRUE)
+
+#Rstudio didn't like the column names (many had long names with spaces etc. )rename to make simpler
+colnames<- colnames(pathogenic)
+colnames[9] <- "Significance"
+colnames(pathogenic) <- colnames
+
+#exclude the non CF-causing mutations
+pathogenic <- pathogenic[pathogenic$Significance != 'Non CF-causing', ]
+
+#for each population, rename the position column and then merge it with the pathogenic data so that only the pathogenic variants are present
+names(AF_data_africa)[names(AF_data_africa) == "pos"] <- "Position"
+pathogenic_africa <- merge(AF_data_africa, pathogenic, by.x = "Position", by.y="chrom_start", all.x = FALSE)
+
+
+names(AF_data_america)[names(AF_data_america) == "pos"] <- "Position"
+pathogenic_america <- merge(AF_data_america, pathogenic, by.x = "Position", by.y="chrom_start", all.x = FALSE)
+
+
+names(AF_data_europe)[names(AF_data_europe) == "pos"] <- "Position"
+pathogenic_europe <- merge(AF_data_europe,pathogenic, by.x = "Position", by.y="chrom_start", all.x = FALSE)
+
+
+names(AF_data_easia)[names(AF_data_easia) == "pos"] <- "Position"
+pathogenic_easia <- merge(AF_data_easia, pathogenic, by.x = "Position", by.y="chrom_start", all.x = FALSE)
+
+
+names(AF_data_sasia)[names(AF_data_sasia) == "pos"] <- "Position"
+pathogenic_sasia <- merge(AF_data_sasia, pathogenic, by.x = "Position", by.y="chrom_start", all.x = FALSE)
+
+
+names(AF_data)[names(AF_data) == "pos"] <- "Position"
+pathogenic_all <- merge(AF_data, pathogenic, by.x = "Position", by.y="chrom_start", all.x = FALSE)
+
+#since this was just based on position, there may be some variants included that occur in the same position as a pathogenic variant but are not pathogenic themselves. create adataframe with the position and reference and alternate alleles for each variant in the 1000 genomes project
+vcfinfo <- data.frame(Position = unlist(pos))
+vcfinfo$reference<-genomes@fix[, "REF"]
+vcfinfo$alternate<-genomes@fix[, "ALT"]
+
+#merge the vcfinfo dataframe with the pathogenic data to determine which variants are actually pathogenic (if they are, the reference and alternate alleles in the 1000 genome project will match the information from  the pathogenic data frame)
+vcfinfo <- merge(vcfinfo, pathogenic_all, by="Position", all.x = FALSE)
+
+#remove the variants that are not pathogenic
+rows_to_delete <- c(1, 8, 9, 13, 19, 22, 26, 28, 29)
+pathogenic_all<-pathogenic_all[-rows_to_delete,]
+pathogenic_africa<-pathogenic_africa[-rows_to_delete,]
+pathogenic_america<-pathogenic_america[-rows_to_delete,]
+pathogenic_europe<-pathogenic_europe[-rows_to_delete,]
+pathogenic_easia<-pathogenic_easia[-rows_to_delete,]
+pathogenic_sasia<-pathogenic_sasia[-rows_to_delete,]
+
+#remove the variants that have a frequency of 0 in that population
+pathogenic_africa<-pathogenic_africa[pathogenic_africa$african_ancestry_frequencies != '0', ]
+pathogenic_america<-pathogenic_america[pathogenic_america$american_ancestry_frequencies != '0', ]
+pathogenic_europe<-pathogenic_europe[pathogenic_europe$european_ancestry_frequencies != '0', ]
+pathogenic_easia<-pathogenic_easia[pathogenic_easia$easian_ancestry_frequencies != '0', ]
+pathogenic_sasia<-pathogenic_sasia[pathogenic_sasia$sasian_ancestry_frequencies != '0', ]
+
+
+#read in the 2 screening tests
+CF50_screen <- read_excel("CF50 screen.xlsx")
+CF175 <- read_excel("CF175.xlsx", sheet = "Table001 (Page 1)")
+
+data_frames <- c("pathogenic_africa", "pathogenic_america", "pathogenic_easia", "pathogenic_europe", "pathogenic_sasia", "pathogenic_all")
+screens <- list(
+  CF175 = list(screen_df = CF175, screen_column = "Column2"),
+  CF50 = list(screen_df = CF50_screen, screen_column = "cDNA name")
+)
+
+#add a column in each data frame to indicate whether the variant is in the CF50 or CF175 screen
+for (df_name in data_frames) {
+  assign(df_name, get(df_name) %>%
+           rename(cDNA_name = "Variant cDNA name\r\n(ordered 5' to 3')") %>%
+           mutate(CF175screen := NA) %>%
+           mutate(CF175screen := if_else(cDNA_name %in% CF175$Column2, TRUE, CF175screen)) %>%
+           mutate(CF175screen := if_else(is.na(CF175screen), FALSE, CF175screen))
+  )
+}
+
+for (df_name in data_frames) {
+  assign(df_name, get(df_name) %>%
+           mutate(CF50screen := NA) %>%
+           mutate(CF50screen := if_else(cDNA_name %in% CF50_screen$`cDNA name`, TRUE, CF50screen)) %>%
+           mutate(CF50screen := if_else(is.na(CF50screen), FALSE, CF50screen))
+  )
+}
+
+#plot the pathogenic variants
+ggplot(pathogenic_all, aes(x = Position, y = INFO, color = Significance)) +
+  geom_point(alpha = 0.6)+
+  labs(x="Position on Chr7", y="Alternate allele frequency", title = "Potentially Pathogenic Variants")
+  
+  ggplot(pathogenic_all, aes(x = Position, y = INFO, color = CF50screen)) +
+  geom_point(alpha = 0.6)+
+  labs(x="Position on Chr7", y="Alternate allele frequency")
+  
+ #create plots that show the position of the pathogenic variants and their alternate allele frequencies, and a second plot with their detection in the screening panels.
+  generate_plot <- function(data) {
+  plot1 <- ggplot(data, aes(x = Position, y = as.numeric(INFO), color = Significance)) +
+    geom_point(alpha = 0.6) +
+    labs(x = NULL, y = NULL)
+  
+  plot2 <- ggplot(data, aes(x = Position, y = INFO, color = Detection)) +
+    geom_point(alpha = 0.6) +
+    labs(x = NULL, y = NULL)
+  
+  return(list(plot1, plot2))
+}
+#apply the function to each data frame
+all_plots <- map(data_frames, ~generate_plot(get(.x)))
+
+pathogenic_europe <- pathogenic_europe %>%
+  rename(INFO = european_ancestry_frequencies)
+
+pathogenic_africa <- pathogenic_africa %>%
+  rename(INFO = african_ancestry_frequencies)
+
+pathogenic_america <- pathogenic_america %>%
+  rename(INFO = american_ancestry_frequencies)
+
+pathogenic_easia <- pathogenic_easia %>%
+  rename(INFO = easian_ancestry_frequencies)
+
+pathogenic_sasia <- pathogenic_sasia %>%
+  rename(INFO = sasian_ancestry_frequencies)
+
+#add a column to each data frame to indicate whether the variant is in both screening tests, just 1 or neither
+  add_third_column <- function(df) {
+  df <- df %>%
+    mutate(Detection = case_when(
+      CF50screen & CF175screen ~ 'Detected in both screening tests',
+      CF175screen ~ 'Detected in CF175',
+      TRUE ~ 'Not detected by either screening test'
+    ))
+  return(df)
+}
+updated_data_frames <- map(data_frames, ~add_third_column(get(.x)))
+
+list2env(setNames(updated_data_frames, data_frames), .GlobalEnv)
+
+#filter out the CF-causing variants from the pathogenic variants. display this as a pie chart
+CF_causing <- pathogenic_all %>%
+  filter(Significance == 'CF-causing')
+
+pie<-pie(CF_causing$INFO, labels = CF_causing$cDNA_name, main = "CF causing variants in all populations")
+
+#arrante all the plots
+grid.arrange(all_plots[[1]][[2]] + ggtitle("African Ancestry")+ theme(legend.position = "none"), all_plots[[2]][[2]] + ggtitle("American Ancestry")+ theme(legend.position = "none"), all_plots[[4]][[2]] + ggtitle("European Ancestry")+ theme(legend.position = "none"), all_plots[[5]][[2]] + ggtitle("South Asian Ancestry"),
+   ncol = 2, nrow = 2, top = textGrob("Detection Rates for Ancestrally Diverse Populations", gp = gpar(fontface = "bold")), 
+                                                                                                                       bottom = textGrob("Position on Chr7", gp = gpar(fontface = "bold")),
+                                                                                                                       left = textGrob("Alternate Allele Frequency", rot = 90, gp = gpar(fontface = "bold")),
+                                                                                                                       heights = c(1, 1),
+                                                                                                                       widths = c(2, 2),respect = TRUE)
+                                                                                                                       
+                                                                                                                      grid.arrange(all_plots[[1]][[1]] + ggtitle("African Ancestry")+ theme(legend.position = "none"), all_plots[[2]][[1]] + ggtitle("American Ancestry")+ theme(legend.position = "none"), all_plots[[4]][[1]] + ggtitle("European Ancestry")+ theme(legend.position = "none"), all_plots[[5]][[1]] + ggtitle("South Asian Ancestry"),
+   ncol = 2, nrow = 2, top = textGrob("Position of Potentially CF Causing Variants in Ancestrally Diverse Populations", gp = gpar(fontface = "bold")), 
+                                                                                                                       bottom = textGrob("Position on Chr7", gp = gpar(fontface = "bold")),
+                                                                                                                       left = textGrob("Alternate Allele Frequency", rot = 90, gp = gpar(fontface = "bold")),
+                                                                                                                       heights = c(1, 1),
+                                                                                                                       widths = c(2, 2),respect = TRUE)
