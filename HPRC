@@ -1,0 +1,166 @@
+install.packages("readr")
+library(readr)
+
+install.packages("dplyr")
+library(dplyr)
+
+install.packages("tidyr")
+library(tidyr)
+
+install.packages("ggplot2")
+library(ggplot2)
+
+
+#read in the paf file containing the aligned assemblies
+paf_data <- read_tsv("path/to/your/file.paf", col_names = FALSE)
+
+#name the columns
+colnames(paf_data) <- c("ref name", "ref length", "ref start", "ref end", "same strand?", "target_name", "target_length", "target_start", "target_end", "num_matches", "alignment_block_length", "mapping_quality", "NM", "PP", "AS", "nn", "tp", "cm", "s1", "s2", "de", "rl", "MD")
+
+#create a graph of query length/alignment length
+paf_data <- paf_data %>%
++     mutate(ratio = as.numeric(`ref length`) / as.numeric(alignment_block_length))
+
+ggplot(paf_data, aes(x = ratio)) +
+geom_histogram(binwidth = 0.0001, color = "black", fill = "blue") +
+ labs(title = "Query Length / Alignment Length Ratio",
+  x = "Ratio",
+  y = "Count")
+
+#create a new data frame with just the MD data
+MD<-paf_data$MD
+
+#now attempt the histogram
+# Define a function that replaces each number with a corresponding number of ones (eg 2 will be replaced with 1 1)
+> one_rep <- function(x) paste(rep("1", as.numeric(x)), collapse = "")
+# Define a function to process each row of the MD data
+> process_row <- function(row) {
++ # Use gsubfn to apply the one_rep function to each number in the input string
++ processed_MD <- gsubfn("[0-9]+", one_rep, row)
++ # Replace the 1s following ^X with N, where X is one or more letters
++ edited_MD <- gsub("(\\^[A-Za-z]+)1", "\\1N", processed_MD)
++ #delete all the letters after ^
++ final_MD <- gsub("\\^([AGCT]+)", "", edited_MD)
+`# split the string into individual characters
++ chars_MD <- strsplit(final_MD, "")[[1]]
++ # Delete the MD at the beginning (every MD output starts with a standard string of letters that aren't part of the actual output)
++ chars_MD <- chars_MD[-c(1:5)]
+ # Replace the 1s with 0s
++ letter_pos_all <- gsub("1", "0", chars_MD)
+# Replace the A-Z with 1 
++ letter_pos_all <- gsub("[A-Z]", "1", letter_pos_all)
+# Convert the letter positions to numeric 
++ letter_pos_numeric_all <- as.numeric(letter_pos_all)
+# Find the positions of 1s
++ pos_all <- which(letter_pos_numeric_all == 1)
+# Return the positions 
++ return(pos_all)
++ }
+
+# Apply the process_row function to each row of the MD data
+result <- lapply(MD, process_row)
+
+#unlist the positions so they can be graphed
+all_pos <- unlist(result)
+
+#convert the positions to their coordinate on the reference genome
+ref_positions <- lapply(all_pos, function(x) x + 117480025)
+
+#unlist the positions and plot as a histogram with a width of 500 base pairs per bar
+ref_positions <- unlist(ref_positions)
+>hist(ref_positions, col = "black", xlab = "Coordinate on Grch38 chr7", main = "Location of Mutations Along the CFTR Gene", breaks = seq(from=117480025, to=117668665, by=500)
+
+#calculate position in terms of intron/exon structure.
+#read in the coordinates of introns and exons from the ensembl database
+>exons<-read_csv("path/to/intron_exon.csv")
+#create a new data frame with the reference positions in the first column
+>mutation_locations<-data.frame(Coordinate=ref_positions)
+#create a new column in the mutation_locations data frame that contains the exon name from the ensembl database
+>mutation_locations$exon <- ExonsSpreadsheet_Homo_sapiens_Transcript_Exons_ENST00000003084$Exon_name[findInterval(mutation_locations$Coordinate, ExonsSpreadsheet_Homo_sapiens_Transcript_Exons_ENST00000003084$Start)]
+#create a new data frame with the exon frequency
+exon_freq <- table(mutation_locations$exon)
+# Convert the output to a  data frame
+> exon_freq <- as.data.frame(exon_freq)
+> View(exon_freq)
+> # Rename the columns of the new data frame
+> colnames(exon_freq) <- c("Location", "frequency")
+
+> 
+
+
+
+change the order
+desired_order <- c("1", "Intron 1-2", "2", "Intron 2-3", "3", "Intron 3-4","4", "Intron 4-5", "5", "Intron 5-6", "6", "Intron 6-7", "7", "Intron 7-8", "8", "Intron 8-9", "9", "Intron 9-10", “10”, “Intron10-11”,"11", "Intron 11-12", "12", "Intron 12-13", "13", "Intron 13-14", "14", "Intron 14-15", "15", "Intron 15-16", "16", "Intron 16-17","17", "Intron 17-18", "18", "Intron 18-19", "19", "Intron 19-20", "20", "Intron 20-21", "21", "Intron 21-22", "22", "Intron 22-23","23", "Intron 23-24", "24", "Intron 24-25", "25", "Intron 25-26", "26", "Intron 26-27", "27")
+#arrange the data in the desired order
+exon_freq <- arrange(exon_freq, match(Location, desired_order))
+
+Convert location column to a factor with levels in desired order
+> exon_freq$Location <- factor(exon_freq$Location, levels = desired_order)
+#create a new column in the exon_freq data frame that specifies whether the region is an intron or exon
+exon_freq_df$exon<-c("exon", "intron", "exon", "intron", "intron", "exon", "intron", "intron", "intron", "exon", "intron", "intron", "exon", "intron", "intron", "exon", "intron", "exon", "intron", "intron", "exon", "intron", "exon", "intron", "exon", "intron", "exon", "intron", "intron", "exon", "intron", "intron", "intron", "exon", "intron","exon", "intron", "intron", "intron", "intron", "exon" )
+#plot
+ggplot(data=exon_freq_df, aes(x=Location, y=frequency, fill=exon)) +
+  geom_bar(stat="identity")+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1), legend.title = element_blank())+labs(x="Location", y="Number of Alternate Alleles", title="Position of Alternate Alleles by Exon")+scale_fill_manual(values = c("exon" = "deeppink", "intron" = "cyan3"),labels = c("exon" = "Exon", "intron" = "Intron"))
+
+#standardise by length
+exon_freq <- exon_freq %>%
++     inner_join(ExonsSpreadsheet_Homo_sapiens_Transcript_Exons_ENST00000003084, by = c("Location" = "Exon_name"))
+
+exon_freq <- exon_freq %>%
++     mutate(standardized = frequency / Length)
+
+ggplot(data=exon_freq, aes(x=fct_inorder(Location), y=standardized, fill=exon)) +
++     geom_bar(stat="identity")+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1), legend.title = element_blank())+labs(x="Location", y="Number of Alternate Alleles per BP", title="Position of Alternate Alleles by Exon")+scale_fill_manual(values = c("exon" = "deeppink", "intron" = "cyan3"),labels = c("exon" = "Exon", "intron" = "Intron"))
+
+#read in the excel file with population information for each participant
+ > population <- read_excel("path/to/population.xlsx")
+ #add a new column to the paf_data data frame containing the population for each sample
+ paf_data$population<-Info$...3
+ 
+ #subset the paf_data data frame into a smaller data frame including only the MD output and the population group
+ df <- subset(paf_data, select = c("MD", "population"))
+ # split the paf_data data frame into a list of smaller data frames based on the 'Population' column
+> df <- split(df, df$population)
+
+# Define a function to process each row of the MD data for each population
+> process_row <- function(row) {
+# Use gsubfn to apply the one_rep function to each number in the input string
+     processed_pop <- gsubfn("[0-9]+", one_rep, row)
+    # Replace the 1s following ^X with N, where X is one or more letters
+        edited_pop <- gsub("(\\^[A-Za-z]+)1", "\\1N", processed_pop)
+        final_pop <- gsub("\\^([AGCT]+)", "", edited_pop)
+            chars_pop <- strsplit(final_pop, "")[[1]]
+                # Delete the MD start
+            chars_pop <- chars_pop[-c(1:5)]
+        letter_pos_pop <- gsub("1", "0", chars_pop)
+            letter_pos_pop <- gsub("[A-Z]", "1", letter_pos_pop)
+        letter_pos_numeric_pop <- as.numeric(letter_pos_pop)
+                    pos_pop <- which(letter_pos_numeric_pop == 1)
+                        return(pos_pop)
+                         }
+#applty the function to each population individually. eg:
+AC_result <- lapply(df$`African Caribbean In Barbados`$MD, process_row)
+#convert the output to a list
+> AC_pos <- unlist(AC_result)
+
+#combine the populations into superpopulations
+Africa<-AC+GW+EN+MS
+
+#for each population, plot the alternate alleles
+Africa<-Africa + 117480025
+#create a table with the population frequencies
+Africastandard <- table(Africa_pos)
+#convert the output to a data frame
+Africastandard <- as.data.frame(Africastandard)
+#standardise the data by dividing by the number of alleles in the population
+ Africastandard$Freq <- Africastandard$Freq / 26
+ 
+Africastandard$Africa_pos <- as.numeric(as.character(Africastandard$Africa_pos))
+#plot the data
+Africa<-ggplot(data=Africastandard, aes(x=Africa_pos, y=Freq))+
+geom_point()+
+labs(x=NULL, y=NULL, title=" African Ancestry")
+
+
+
+
