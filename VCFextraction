@@ -1,0 +1,3 @@
+#script use to extract the CFTR gene of the 3202 haplotypes from the 1000 Genomes Project. The script was used in the Gadi Terminal of the NCI where the VCF files for the whole genomes of the 3202 haplotypes were already present. Therefore, the CFTR gene was extracted and written to a new VCF file.
+
+bcftools view -r chr7:117480025-117668665/g/data/te53/referencedata/onekg/1kg_WGS_30x/phased_VCF/1kGP_high_coverage_Illumina.chr7.filtered.SNV_INDEL_SV_phased_panel.vcf.gz -o cftr_chr7.vcf
