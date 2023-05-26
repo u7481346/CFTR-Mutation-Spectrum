@@ -1,0 +1,14 @@
+#The following script was used to perform the Minimap2 Alignments.
+
+#The CFTR gene was extracted from the GRCh36 reference assembly using the software Samtools and saved as a new file
+samtools faidx /g/data/te53/humanreference/GRCh38.p13/refresource/GRCh38.p13.alt.decoyhs38d1.hla.phix.sequin.patches.xy.fa chr7:117480025-117668665 >cftr.grch38.fa
+
+#Each of the 58 assemblies from the HPRC was downloaded and saved as a new file.
+for i in HG00411 HG00423 HG00438 HG00480 HG00621 HG00673 HG00730 HG00735 HG00741 HG01071 HG01106 HG01123 HG01138 HG01175 HG01258 HG01358 HG01361 HG01888 HG01891 HG01928 HG01952 HG01978 HG01998 HG02027 HG02083 HG02148 HG02257 HG02486 HG02523 HG02559 HG02572 HG02622 HG02630 HG02717 HG02886 HG03453 HG03471 HG03516 HG03540 HG03579; 
+do
+  wget --continue https://s3-us-west-2.amazonaws.com/human-pangenomics/working/HPRC/$i/assemblies/year1_freeze_assembly_v2/$i.maternal.f1_assembly_v2.fa.gz; echo $i is done; done
+
+#Pairwise alignment of the 58 assemblies with the reference gene were performed using Minimap2.
+( for reference in *.fa.gz; do 
+  echo minimap2 --secondary=no -t 6 -o $(basename $reference .f1_assembly_v2.fa.gz).cftr.paf $reference ~/cftr.grch38.fa; 
+done ) | parallel -j 8
