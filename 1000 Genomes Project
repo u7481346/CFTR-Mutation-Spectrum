@@ -1,3 +1,5 @@
+#This script was used to analyse the mutation spectrum of haplotypes in the 1000 Genomes Project.
+
 library(vcfR)
 library(ggplot2)
 library(dplyr)
@@ -9,7 +11,7 @@ library(purrr)
 library(gridExtra)
 library(grid)
 
-#read in the vcf files from the 1000 genomes project
+#read in the vcf files from the 1000 genomes project previously extracted using Gadi Terminal.
 genomes<-read.vcfR("cftr_chr7.vcf")
 
 #extract the positions
@@ -132,32 +134,6 @@ freqinfo <- extract_info_tidy(genomes)
 freqinfo <- freqinfo %>% mutate(position = pos)
 afcol <- c("AF_AFR_unrel", "AF_AMR_unrel", "AF_EAS_unrel", "AF_EUR_unrel", "AF_SAS_unrel")
 
-freqinfo %>%
-    dplyr::select(position, all_of(afcol)) %>%
-    tidyr::pivot_longer(cols = -position, names_to = "population", values_to = "frequency") %>%
-    dplyr::mutate(
-        frequency = as.numeric(frequency),
-        posgr = as.integer(position / 1000),
-        category = case_when(
-            frequency < 0.01 ~ "very rare",
-            frequency >= 0.01 & frequency < 0.1 ~ "rare",
-            frequency >= 0.1 ~ "common"
-        )
-    ) %>%
-    dplyr::group_by(posgr, category, population) %>%
-    dplyr::summarize(count = n()) %>%
-    dplyr::ungroup() %>%
-    # Assuming your tbl is named 'stacked_data'
-    ggplot() +
-      geom_bar(aes(x = category, y = count, fill = population),
-             position = "stack",
-             stat = "identity") +
-    facet_grid(~ posgr, switch = "x") +
-    theme(strip.placement = "outside",
-          strip.background = element_rect(fill = NA, color = "white"),
-          panel.spacing = unit(-.01,"cm"))+
-  labs(y="Number of variants")
-
 
 freqinfo %>%
     dplyr::select(position, all_of(afcol)) %>%
@@ -198,7 +174,7 @@ locations <- getBM(attributes = c("refsnp_id", "chr_name", "chrom_start", "chrom
 #create a new data frame with the information from the CFTR2 database and position information
 pathogenic <- merge(CFTR2_29April2022_1_, locations, by.x = "rsID", by.y = "refsnp_id", all.x = TRUE)
 
-#Rstudio didn't like the column names (many had long names with spaces etc. )rename to make simpler
+#Rstudio didn't like the column names (many had long names with spaces etc. ) - rename to make simpler
 colnames<- colnames(pathogenic)
 colnames[9] <- "Significance"
 colnames(pathogenic) <- colnames
@@ -230,7 +206,7 @@ pathogenic_sasia <- merge(AF_data_sasia, pathogenic, by.x = "Position", by.y="ch
 names(AF_data)[names(AF_data) == "pos"] <- "Position"
 pathogenic_all <- merge(AF_data, pathogenic, by.x = "Position", by.y="chrom_start", all.x = FALSE)
 
-#since this was just based on position, there may be some variants included that occur in the same position as a pathogenic variant but are not pathogenic themselves. create adataframe with the position and reference and alternate alleles for each variant in the 1000 genomes project
+#since this was just based on position, there may be some variants included that occur in the same position as a pathogenic variant but are not pathogenic themselves. create a dataframe with the position and reference and alternate alleles for each variant in the 1000 genomes project
 vcfinfo <- data.frame(Position = unlist(pos))
 vcfinfo$reference<-genomes@fix[, "REF"]
 vcfinfo$alternate<-genomes@fix[, "ALT"]
@@ -283,6 +259,20 @@ for (df_name in data_frames) {
   )
 }
 
+#add a column to each data frame to indicate whether the variant is in both screening tests, just 1 or neither
+  add_third_column <- function(df) {
+  df <- df %>%
+    mutate(Detection = case_when(
+      CF50screen & CF175screen ~ 'Detected in both screening tests',
+      CF175screen ~ 'Detected in CF175',
+      TRUE ~ 'Not detected by either screening test'
+    ))
+  return(df)
+}
+updated_data_frames <- map(data_frames, ~add_third_column(get(.x)))
+
+list2env(setNames(updated_data_frames, data_frames), .GlobalEnv)
+
 #plot the pathogenic variants
 ggplot(pathogenic_all, aes(x = Position, y = INFO, color = Significance)) +
   geom_point(alpha = 0.6)+
@@ -322,19 +312,7 @@ pathogenic_easia <- pathogenic_easia %>%
 pathogenic_sasia <- pathogenic_sasia %>%
   rename(INFO = sasian_ancestry_frequencies)
 
-#add a column to each data frame to indicate whether the variant is in both screening tests, just 1 or neither
-  add_third_column <- function(df) {
-  df <- df %>%
-    mutate(Detection = case_when(
-      CF50screen & CF175screen ~ 'Detected in both screening tests',
-      CF175screen ~ 'Detected in CF175',
-      TRUE ~ 'Not detected by either screening test'
-    ))
-  return(df)
-}
-updated_data_frames <- map(data_frames, ~add_third_column(get(.x)))
 
-list2env(setNames(updated_data_frames, data_frames), .GlobalEnv)
 
 #filter out the CF-causing variants from the pathogenic variants. display this as a pie chart
 CF_causing <- pathogenic_all %>%
@@ -342,7 +320,7 @@ CF_causing <- pathogenic_all %>%
 
 pie<-pie(CF_causing$INFO, labels = CF_causing$cDNA_name, main = "CF causing variants in all populations")
 
-#arrante all the plots
+#arrange all the plots
 grid.arrange(all_plots[[1]][[2]] + ggtitle("African Ancestry")+ theme(legend.position = "none"), all_plots[[2]][[2]] + ggtitle("American Ancestry")+ theme(legend.position = "none"), all_plots[[4]][[2]] + ggtitle("European Ancestry")+ theme(legend.position = "none"), all_plots[[5]][[2]] + ggtitle("South Asian Ancestry"),
    ncol = 2, nrow = 2, top = textGrob("Detection Rates for Ancestrally Diverse Populations", gp = gpar(fontface = "bold")), 
                                                                                                                        bottom = textGrob("Position on Chr7", gp = gpar(fontface = "bold")),
@@ -356,3 +334,18 @@ grid.arrange(all_plots[[1]][[2]] + ggtitle("African Ancestry")+ theme(legend.pos
                                                                                                                        left = textGrob("Alternate Allele Frequency", rot = 90, gp = gpar(fontface = "bold")),
                                                                                                                        heights = c(1, 1),
                                                                                                                        widths = c(2, 2),respect = TRUE)
+                                                                                                                       
+                                                                                                                       
+#these plots are useful, but contain information that is less relevant (eg the position of all these mutations) that makes them difficult to interpret. Instead, display the significance and detection of variants as a bar chart.
+
+#create a bar chart for each population that is filled based on significance and outlined based on detection
+AM<-ggplot(pathogenic_america, aes(fill = Significance, y = INFO, x = cDNA_name, colour = Detection)) +
+    geom_bar(position = "dodge", stat = "identity") +
+    scale_colour_manual(values = c("Detected in both screening tests" = "black", "Detected in CF175" = "grey", "Not detected by either screening test" = "white")) +
+    labs(x=NULL, y=NULL, title="Detection for American Ancestral Groups") +
+    theme(axis.text.x = element_text(angle = 90, hjust = 1))
+    
+#arrange these plots    
+grid.arrange(AF+ theme(legend.position = "none"),AM+ theme(legend.position = "none"),EU+ theme(legend.position = "none"),SA+ theme(legend.position = "none"),
+bottom = textGrob("Mutation", gp = gpar(fontface = "bold")),
+left = textGrob("Frequency", rot = 90, gp = gpar(fontface = "bold")))
